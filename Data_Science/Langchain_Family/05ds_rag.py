@@ -4,6 +4,7 @@ from langchain_core.runnables import RunnableLambda, RunnableMap
 from langchain_community.vectorstores import Qdrant
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.document_loaders import DataFrameLoader
+from langchain.schema import StrOutputParser
 from datasets import load_dataset
 from dotenv import load_dotenv
 
@@ -50,13 +51,12 @@ rag_chain = (   # retriever.invoke debaixo dos panos
     {"context": retriever, "question": RunnableLambda(lambda x: x)}
     | prompt
     | llm
+    | StrOutputParser()
 )
 
 while True:
     query = input("Pergunta: ")
     response = rag_chain.invoke(query)
 
-    if response.startswith("Assistant<|im_sep|>"):  # Artefato de formatação do modelo
-        response = response.replace("Assistant<|im_sep|>", "", 1).lstrip()
 
     print(response)
