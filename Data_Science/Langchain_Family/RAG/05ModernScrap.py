@@ -4,10 +4,9 @@ import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from langchain_community.document_loaders import AsyncHtmlLoader
-from langchain_community.document_transformers import BeautifulSoupTransformer
 from langchain_core.documents import Document
-from langchain_text_splitters import (HTMLHeaderTextSplitter,
-                                      RecursiveCharacterTextSplitter)
+from langchain_text_splitters import HTMLSemanticPreservingSplitter
+                                     
 
 load_dotenv()
 
@@ -49,7 +48,8 @@ def get_urls_scikit_api() -> List[str]:
         List[str]: List with URLs
     """
     api = BeautifulSoup(
-        requests.get(BASE_URL + 'api/index.html').text
+        requests.get(BASE_URL + 'api/index.html').text,
+        'html.parser'
     )
     urls = []
 
@@ -63,9 +63,33 @@ def get_urls_scikit_api() -> List[str]:
     return urls
 
 
-def split_scikit_user_guide(urls: List[str]) -> List[Document]:
-    """Scrap and split all urls passed of user guide pages
-    Only the content inside the article tag will be read.
+def get_urls_scikit_examples() -> List[str]:
+    """Get all urls of "examples" from a index page
+
+    Returns:
+        List[str]: List with URLs
+    """
+    examples = BeautifulSoup(
+        requests.get(BASE_URL + 'auto_examples/index.html').text,
+        'html.parser'
+    )
+
+    urls = []
+
+    main_section = examples.find('section', id='examples')
+    all_sections = main_section.find_all('section')
+    for section in all_sections:
+        div = section.find('div', class_='sphx-glr-thumbnails')
+        anchors = div.find_all('a')
+        for a in anchors:
+            urls.append(BASE_URL + 'auto_examples/' + a.get('href'))
+
+    return urls
+
+
+def split_scikit(urls: List[str]) -> List[Document]:
+    """Scrap and split all urls passed of user guide, api and examples
+    Only the content inside the article (central tag) will be read.
 
     Args:
         urls (List[str]): List with URLs
@@ -82,48 +106,27 @@ def split_scikit_user_guide(urls: List[str]) -> List[Document]:
         article = soup.find('article', class_='bd-article')
         filtred_docs.append(Document(str(article), metadata=doc.metadata))
 
-    splitter = HTMLHeaderTextSplitter(
-        headers_to_split_on=[
-            ('h1', 'Page'), ('h2', 'Section'),
-            ('h3', 'Sub Section'), ('h4', 'Sub Section'),
-        ])
+    splitter = HTMLSemanticPreservingSplitter(
+        headers_to_split_on=[('h1', 'Page'), ('h2', 'Seciton'),
+                             ('h3', 'Subsection'), ('h4', 'Subsection')],
+        separators=["\n\n", "\n", ". ", "! ", "? "],
+        max_chunk_size=1000,
+        preserve_links=True,
+        preserve_images=False,
+        elements_to_preserve=['table', 'ul', 'ol',
+                              'code', 'span', 'pre',
+                              'mjx-container', 'mjx-math'],
+        custom_handlers={
+            "pre": lambda element: f"<code:Python>{element.get_text()}</code>"}
+    )
 
     split_docs = []
     for doc in filtred_docs:
         new_doc = splitter.split_text(doc.page_content)
         for d in new_doc:
-            if len(d.page_content) > 40:
-                d.metadata.update(doc.metadata)
-                split_docs.append(d)
-            else:
-                continue
-    return split_docs
-
-
-def split_scikit_api(urls: List[str]) -> List[Document]:
-    """Scrap and split all urls passed of api pages
-    Only the content inside the article tag will be read.
-
-    Args:
-        urls (List[str]): List with URLs
-
-    Returns:
-        List[Document]: List of langchain documents
-    """
-    loader = AsyncHtmlLoader(urls)
-    docs = loader.load()
-
-    filtred_docs = BeautifulSoupTransformer().transform_documents(
-        docs,
-        tags_to_extract=['article']
-    )
-
-    splitter = RecursiveCharacterTextSplitter(  # Checar a qualidade da configuração
-        chunk_size=600,
-        chunk_overlap=100,
-        separators=["\n\n", "\n", ".", " "]
-    )
-    split_docs = splitter.split_documents(filtred_docs)
+            # Add source, description, language
+            d.metadata.update(doc.metadata)
+            split_docs.append(d)
     return split_docs
 
 
@@ -133,16 +136,15 @@ def scikit_pipeline() -> List[Document]:
     Returns:
         List[Document]: (User guide + api) langchain docs 
     """
-    user_guide = split_scikit_user_guide(
-        get_urls_scikit_user_guide()
+    split = split_scikit(
+        get_urls_scikit_api() + get_urls_scikit_user_guide() + get_urls_scikit_examples()
     )
-    api = split_scikit_api(
-        get_urls_scikit_user_guide()
-    )
-    user_guide.extend(api)
-    return user_guide
+    return split
 
 
-split = split_scikit_user_guide(['https://scikit-learn.org/stable/modules/linear_model.html#ridge-regression-and-classification'])
+def main():
+    ...
 
-print(split[2])  # Blocos de código e textos em destaque ficam totalmente bugados na raspagem.
+
+if __name__ == '__main__':
+    main()
