@@ -143,7 +143,8 @@ def scikit_pipeline() -> List[Document]:
 
 
 def main():
-    ...
+    results = scikit_pipeline()
+    print(results[:4])
 
 
 if __name__ == '__main__':
