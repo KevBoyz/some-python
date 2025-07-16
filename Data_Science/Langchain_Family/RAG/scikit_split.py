@@ -13,7 +13,7 @@ load_dotenv()
 BASE_URL = 'https://scikit-learn.org/stable/'
 
 
-def get_urls_scikit_user_guide() -> List[str]:
+def get_scikit_user_guide() -> List[str]:
     """Get all urls of "user guide" from a navbar on the site
 
     Returns:
@@ -41,7 +41,7 @@ def get_urls_scikit_user_guide() -> List[str]:
     return urls
 
 
-def get_urls_scikit_api() -> List[str]:
+def get_scikit_api() -> List[str]:
     """Get all urls of "API" from a index page
 
     Returns:
@@ -63,7 +63,7 @@ def get_urls_scikit_api() -> List[str]:
     return urls
 
 
-def get_urls_scikit_examples() -> List[str]:
+def get_scikit_examples() -> List[str]:
     """Get all urls of "examples" from a index page
 
     Returns:
@@ -85,6 +85,23 @@ def get_urls_scikit_examples() -> List[str]:
             urls.append(BASE_URL + 'auto_examples/' + a.get('href'))
 
     return urls
+
+
+def get_scikit_changelog() -> List[str]:
+    changelog = BeautifulSoup(
+        requests.get(BASE_URL + '/whats_new.html').text,
+        'html.parser'
+    )
+    urls = []
+
+    links_navbar = changelog.find(class_='nav bd-sidenav')
+    anchors = links_navbar.find_all('a')
+    for a in anchors:
+        urls.append(BASE_URL + '/whats_new.html'+ a.get('href'))
+        urls.pop()  # Older versions 
+    return urls
+
+
 
 
 def split_scikit(urls: List[str]) -> List[Document]:
@@ -130,6 +147,45 @@ def split_scikit(urls: List[str]) -> List[Document]:
     return split_docs
 
 
+def split_scikit_changelog(urls: List[str]) -> List[Document]:
+    loader = AsyncHtmlLoader(urls)
+    docs = loader.load()
+
+    filtred_docs = []
+    for doc in docs:
+        soup = BeautifulSoup(doc.page_content, 'html.parser')
+        article = soup.find('article', class_='bd-article')
+        section1 = article.find('section')
+        section2 = section1.find('section')
+        all_sections = section2.findAll('section')
+        for s in all_sections:
+            filtred_docs.append(Document(str(s), metadata=doc.metadata))
+
+    splitter = HTMLSemanticPreservingSplitter(
+        headers_to_split_on=[('h1', 'Page'), ('h2', 'Seciton'),
+                             ('h3', 'Section'), ('h4', 'Subsection')],
+        separators=["\n\n", "\n", ". ", "! ", "? "],
+        max_chunk_size=1000,
+        preserve_links=True,
+        preserve_images=False,
+        elements_to_preserve=['table', 'ul', 'ol',
+                              'code', 'span', 'pre',
+                              'mjx-container', 'mjx-math'],
+        custom_handlers={
+            "pre": lambda element: f"<code:Python>{element.get_text()}</code>"}
+    )
+
+    split_docs = []
+    for doc in filtred_docs:
+        new_doc = splitter.split_text(doc.page_content)
+        for d in new_doc:
+            # Add source, description, language
+            d.metadata.update(doc.metadata)
+            split_docs.append(d)
+    return split_docs
+
+
+
 def scikit_pipeline() -> List[Document]:
     """Automates the scikit pipeline
 
@@ -137,14 +193,15 @@ def scikit_pipeline() -> List[Document]:
         List[Document]: (User guide + api) langchain docs 
     """
     split = split_scikit(
-        get_urls_scikit_api() + get_urls_scikit_user_guide() + get_urls_scikit_examples()
+        get_scikit_api() + get_scikit_user_guide() + get_scikit_examples()
     )
     return split
 
 
 def main():
-    results = scikit_pipeline()
-    print(results[:4])
+    sp = split_scikit(['https://pandas.pydata.org/docs/user_guide/copy_on_write.html'])
+    x = 4
+    print(x-4)
 
 
 if __name__ == '__main__':
