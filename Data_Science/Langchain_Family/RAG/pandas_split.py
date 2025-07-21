@@ -99,3 +99,9 @@ def split_pandas(urls: List[str]) -> List[Document]:
     return split_docs
 
 
+
+def main():
+    print(get_pandas_user_guide())
+
+if __name__ == '__main__':
+    main()
